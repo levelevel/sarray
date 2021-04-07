@@ -8,108 +8,71 @@
 #define ARRAY_GROW_FACTOR   2
 
 //アレイをアロケートする。
-sarray_t *new_sarray(int len) {
-    assert(len>=0);
+//init_capacityには初期最大データサイズを指定する。0の場合はデフォルト値が使用される。
+//長さ(array->num)は常に0となる。
+sarray_t *new_sarray(const sarray_char_t *str) {
+    size_t len = 0;
+    if (str) len = strlen(str);
     sarray_t *sarray = calloc(1, sizeof(sarray_t));
     assert(sarray);
-    sarray->capacity = len?len:ARRAY_INIT_SIZE;
-    sarray->buckets = calloc(sarray->capacity, sizeof(sarray_char_t));
-    assert(sarray->buckets);
+    sarray->capacity = len?len+1:ARRAY_INIT_SIZE;
+    sarray->str_buf = calloc(sarray->capacity, sizeof(sarray_char_t));
+    assert(sarray->str_buf);
+    if (str) strcpy(sarray->str_buf, str);
     return sarray;
 }
 
-//アレイを開放する。
+//アレイを解放する。
 void free_sarray(sarray_t *sarray) {
-    if (sarray) free(sarray->buckets);
+    if (sarray) free(sarray->str_buf);
     free(sarray);
 }
 
-//アレイのサイズ(sarray->len)を取得する。
-int len_array(const sarray_t *sarray) {
+//アレイの長さ（文字列の長さ）を取得する。
+size_t len_sarray(const sarray_t *sarray) {
     assert(sarray);
-    return sarray->len;
+    return strlen(sarray->str_buf);
 }
 
-//アレイのサイズを設定する。アレイのサイズは自動的に拡張される。
-void set_sarray_len(sarray_t *sarray, int len) {
+//アレイに指定された文字列を格納し、格納された文字列のポインタを返す。
+//アレイの長さは指定された文字列を格納するのに十分なサイズに自動的に拡張される。
+sarray_char_t *set_sarray(sarray_t *sarray, const sarray_char_t *str) {
     assert(sarray);
-    assert(len>=0);
-    sarray->len = len;
-    sarray->buckets = realloc(sarray->buckets, len*sizeof(sarray_char_t));
-    assert(sarray->buckets);
-    if (len>sarray->capacity) {
-        memset(sarray->buckets+sarray->capacity, 0x00, len-sarray->capacity);
+    if (str) {
+        size_t len = strlen(str);
+        if (len>=sarray->capacity) {
+            while (len>=sarray->capacity) sarray->capacity *= ARRAY_GROW_FACTOR;
+            sarray->str_buf = realloc(sarray->str_buf, sarray->capacity*sizeof(sarray_char_t));
+            assert(sarray->str_buf);
+        }
+        strcpy(sarray->str_buf, str);
+    } else {
+        *sarray->str_buf = '\0';
     }
-    sarray->capacity = len;
+    return sarray->str_buf;
 }
 
-//アレイのidx番目にデータを格納する。アレイのサイズは自動的に拡張される。
-//データ未設定の領域にはNULLが設定される。
-void put_sarray(sarray_t *sarray, int idx, sarray_char_t chr) {
+//アレイの最後に文字列を連結（追加）し、格納された文字列のポインタを返す。
+//アレイの長さは指定された文字列を格納するのに十分なサイズに自動的に拡張される。
+sarray_char_t *concat_sarray(sarray_t *sarray, const sarray_char_t *str) {
     assert(sarray);
-    assert(idx>=0);
-    if (idx>=sarray->capacity) {     //buckets拡張時は拡張分を0クリアする
-        assert(!sarray->size_fixed);
-        int new_cap = sarray->capacity;
-        while (idx>=new_cap) new_cap *= ARRAY_GROW_FACTOR;
-        sarray->buckets = realloc(sarray->buckets, new_cap*sizeof(sarray_char_t));
-        assert(sarray->buckets);
-        memset(sarray->buckets+sarray->capacity, 0x00, (new_cap-sarray->capacity)*sizeof(sarray_char_t));
-        sarray->capacity = new_cap;
+    if (str) {
+        size_t old_len = strlen(sarray->str_buf);
+        size_t new_len = old_len + strlen(str);
+        if (new_len>=sarray->capacity) {
+            while (new_len>=sarray->capacity) sarray->capacity *= ARRAY_GROW_FACTOR;
+            sarray->str_buf = realloc(sarray->str_buf, sarray->capacity*sizeof(sarray_char_t));
+            assert(sarray->str_buf);
+        }
+        strcpy(sarray->str_buf+old_len, str);
     }
-    sarray->buckets[idx] = chr;
-    if (idx>=sarray->len) sarray->len = idx+1;
+    return sarray->str_buf;
 }
 
-//アレイのidx番目のデータを取得する。アレイのサイズは変わらない。
-sarray_char_t get_sarray(const sarray_t *sarray, int idx) {
+//アレイのサイズを必要最低限にシュリンクし、格納された文字列のポインタを返す。
+sarray_char_t *shrink_sarray(sarray_t *sarray) {
     assert(sarray);
-    assert(idx>=0);
-    assert(idx<sarray->len);
-    return (sarray->buckets[idx]);
-}
-
-//アレイのidx番目のデータを削除する。以降のデータは前に詰められる。アレイのサイズは1減る。
-void del_sarray(sarray_t *sarray, int idx) {
-    assert(sarray);
-    assert(idx>=0);
-    assert(idx<sarray->len);
-    memcpy(sarray->buckets+idx, sarray->buckets+idx+1, (sarray->len-idx)*sizeof(sarray_char_t));
-    sarray->buckets[sarray->len-1] = '\0';
-    sarray->len--;
-}
-
-//アレイの最後にデータを1個追加する。アレイのサイズは1増える。
-void push_sarray(sarray_t *sarray, sarray_char_t chr) {
-    assert(sarray);
-    assert(!sarray->size_fixed);
-    put_sarray(sarray, sarray->len, chr);
-}
-
-//アレイの最後のデータを1個取り出す。アレイのサイズは1減る。
-sarray_char_t pop_sarray(sarray_t *sarray) {
-    assert(sarray);
-    assert(sarray->len>0);
-    assert(!sarray->size_fixed);
-    sarray_char_t chr = sarray->buckets[--sarray->len];
-    sarray->buckets[sarray->len] = '\0';
-    return chr;
-}
-
-//アレイを複製する。
-//複製されたアレイの内部データは必要最低限分が確保される。
-sarray_t *dup_sarray(sarray_t *sarray) {
-    assert(sarray);
-    sarray_t *new = new_sarray(sarray->len);
-    new->len = sarray->len;
-    memcpy(new->buckets, sarray->buckets, sarray->len*sizeof(sarray_char_t));
-    return new;
-}
-
-//配列サイズを固定する。
-//以降、配列サイズを変更するアクセス（push_sarray/pop_sarray等）はエラーとなる。
-void fix_sarray_size(sarray_t *sarray) {
-    sarray->size_fixed = 1;
-    sarray->buckets = realloc(sarray->buckets, sarray->len*sizeof(sarray_char_t));
-    sarray->capacity = sarray->len;
+    sarray->capacity = strlen(sarray->str_buf)+1;
+    sarray->str_buf = realloc(sarray->str_buf, sarray->capacity*sizeof(sarray_char_t));
+    return sarray->str_buf;
 }
